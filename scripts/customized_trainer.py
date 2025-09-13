@@ -32,7 +32,7 @@ ERROR_GENERATION_CONFIG_MODELS = [
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", "0"))
 
 print(f"LOCAL_RANK: {LOCAL_RANK} in customized_trainer.py", flush=True)
-    
+
 class CustomEvalSaveCallback(TrainerCallback):
     def __init__(
         self,
@@ -68,10 +68,79 @@ class CustomEvalSaveCallback(TrainerCallback):
             control.should_evaluate = True
             control.should_save = True
             if when_to_eval["reason"] == "end_time":
+                control.should_training_stop = True
                 if not self.has_checkpoint: # if there is no checkpoint, we just save the model, do not evaluate
                     print(f"No checkpoint found, just save the model at step: {state.global_step}", flush=True)
                     control.should_evaluate = False
-                    self.save_only = True
+                    self.save_only = False
+            elif when_to_eval["reason"] == "periodic":
+                # print("log_history:", state.log_history)
+
+                log_path = os.path.join(self.output_dir, "log_history.json")
+
+                # Collect all logged losses
+                losses = [
+                    log["loss"] for log in state.log_history if "loss" in log
+                ]
+
+                if losses:
+                    avg_loss = sum(losses) / len(losses)
+                    print("\nAverage loss:", avg_loss)
+
+                    # control.should_evaluate = False
+                    # control.should_save = True
+                    # self.save_only = True
+
+                    if os.path.isfile(log_path):
+                        with open(log_path, "r") as file:
+                            data_history = json.load(file)
+
+                            last_losses = [
+                                log["loss"] for log in data_history if "loss" in log
+                            ]
+
+                            if last_losses:
+                                last_loss = sum(last_losses) / len(last_losses)
+                                print("Last loss:", last_loss)
+
+                                # control.should_evaluate = False
+                                # control.should_save = True
+                                # self.save_only = True
+
+                                if last_loss >= avg_loss:
+                                    print(f"log_history last: {log_path}")
+
+                                    with open(log_path, "w") as f:
+                                        json.dump(state.log_history, f, ensure_ascii=False)
+
+                                    control.should_evaluate = False
+                                    control.should_save = True
+                                    self.save_only = True
+
+                                else:
+                                    control.should_evaluate = False
+                                    control.should_save = False
+                                    self.save_only = False
+
+                            else:
+                                print("No losses found in log_history")
+
+                    else:
+                        print("New loss:", avg_loss)
+
+                        print(f"log_history new: {log_path}")
+
+                        with open(log_path, "w") as f:
+                            json.dump(state.log_history, f, ensure_ascii=False)
+
+                        control.should_evaluate = False
+                        control.should_save = True
+                        self.save_only = True
+
+                else:
+                    print("No losses found in log_history")
+
+
         return control
 
 
